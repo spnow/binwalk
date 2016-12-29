@@ -105,6 +105,8 @@ class Extractor(Module):
         # The input file specific output directory path (default to CWD)
         if self.base_directory:
             self.directory = os.path.realpath(self.base_directory)
+            if not os.path.exists(self.directory):
+                os.makedirs(self.directory)
         else:
             self.directory = os.getcwd()
         # Key value pairs of input file path and output extraction path
@@ -135,11 +137,21 @@ class Extractor(Module):
             return
 
         # Only add this to the pending list of files to scan
-        # if the file is a regular file or a block/character device.
-        if (stat.S_ISREG(file_mode) or
-            stat.S_ISBLK(file_mode) or
-            stat.S_ISCHR(file_mode)):
-            self.pending.append(f)
+        # if the file is a regular file. Special files (block/character
+        # devices) can be tricky; they may fail to open, or worse, simply
+        # hang when an attempt to open them is made. So for recursive
+        # extraction purposes, they are ignored, albeit with a warning to
+        # the user.
+        if stat.S_ISREG(file_mode):
+            # Make sure we can open the file too...
+            try:
+                fp = binwalk.core.common.BlockFile(f)
+                fp.close()
+                self.pending.append(f)
+            except IOError as e:
+                binwalk.core.common.warning("Ignoring file '%s': %s" % (f, str(e)))
+        else:
+            binwalk.core.common.warning("Ignoring file '%s': Not a regular file" % f)
 
     def reset(self):
         # Holds a list of pending files that should be scanned; only populated if self.matryoshka == True
